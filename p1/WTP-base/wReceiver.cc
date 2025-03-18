@@ -37,7 +37,7 @@ private:
     void sendAck(unsigned int seqNum) {
         PacketHeader ackHeader;
         ackHeader.type = ACK;
-        ackHeader.seqNum = htonl(seqNum);
+        ackHeader.seqNum = seqNum;
         ackHeader.length = 0;
         ackHeader.checksum = 0;
 
@@ -49,7 +49,7 @@ private:
         char buffer[sizeof(PacketHeader) + 1456];
         memcpy(buffer, header, sizeof(PacketHeader));
         if (data != nullptr) {
-            memcpy(buffer + sizeof(PacketHeader), data, ntohl(header->length));
+            memcpy(buffer + sizeof(PacketHeader), data, header->length);
         }
         sendto(sockfd, buffer, sizeof(PacketHeader) + ntohl(header->length), 0,
                (struct sockaddr*)&clientAddr, sizeof(clientAddr));
@@ -115,10 +115,10 @@ public:
             }
 
             memcpy(&header, buffer, sizeof(PacketHeader));
-            header.type = header.type;
-            header.seqNum = ntohl(header.seqNum);
-            header.length = ntohl(header.length);
-            header.checksum = ntohl(header.checksum);
+//            header.type = header.type;
+//            header.seqNum = ntohl(header.seqNum);
+//            header.length = ntohl(header.length);
+//            header.checksum = ntohl(header.checksum);
 
             log(header);
 
@@ -156,7 +156,7 @@ public:
                 if (header.length > 0) {
                     unsigned int computedChecksum = crc32(data, header.length);
                     if (computedChecksum != header.checksum) {
-                        std::cerr << "The Checksum is diff" << std::endl;
+                        std::cout << "The Checksum is diff" << std::endl;
                         // TODO: remove the command
 //                        continue; // Drop corrupted packet
                     }
@@ -174,7 +174,9 @@ public:
                 }
                 std::cout << "Sending ACK" << std::endl;
                 sendAck(expectedSeq);
-            } else if (header.type == END) {
+            }
+            // END
+            else if (header.type == END) {
                 std::cout << "The header is END" << std::endl;
                 if (currentFile.is_open()) {
                     currentFile.close();

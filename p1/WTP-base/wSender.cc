@@ -35,23 +35,25 @@ private:
     void sendStart() {
         PacketHeader startHeader;
         startHeader.type = START;
-        startHeader.seqNum = htonl(startSeqNum);
+        startHeader.seqNum = startSeqNum;
         startHeader.length = 0;
         startHeader.checksum = 0;
 
         sendPacket(&startHeader, nullptr);
         std::cerr << "Now sending the start to the server" << std::endl;
+        std::cout << to_string(startHeader)<< std::endl;
         log(startHeader);
     }
 
     void sendEnd() {
         PacketHeader endHeader;
         endHeader.type = END;
-        endHeader.seqNum = htonl(startSeqNum);
+        endHeader.seqNum = startSeqNum;
         endHeader.length = 0;
         endHeader.checksum = 0;
 
         sendPacket(&endHeader, nullptr);
+        std::cout << to_string(endHeader)<< std::endl;
         log(endHeader);
     }
 
@@ -59,9 +61,9 @@ private:
         char buffer[sizeof(PacketHeader) + 1456];
         memcpy(buffer, header, sizeof(PacketHeader));
         if (data != nullptr) {
-            memcpy(buffer + sizeof(PacketHeader), data, ntohl(header->length));
+            memcpy(buffer + sizeof(PacketHeader), data, header->length);
         }
-        sendto(sockfd, buffer, sizeof(PacketHeader) + ntohl(header->length), 0,
+        sendto(sockfd, buffer, sizeof(PacketHeader) + header->length, 0,
                (struct sockaddr*)&receiverAddr, sizeof(receiverAddr));
     }
 
@@ -90,18 +92,22 @@ private:
         }
 
         memcpy(&ackHeader, buffer, sizeof(PacketHeader));
-        if (ackHeader.type == ACK && ntohl(ackHeader.seqNum) == expectedSeq) {
+
+        if (ackHeader.type == ACK && ackHeader.seqNum == expectedSeq) {
             log(ackHeader);
-            std::cerr << "The ack msg is sucessfully receive" << std::endl;
+            std::cout << "The ack msg is sucessfully receive" << std::endl;
+            std::cout << to_string(ackHeader)<< std::endl;
             return true;
         }
         else{
             if (ackHeader.type != ACK )
             {
                 std::cerr << "The header is not ack, the header type is " << static_cast<unsigned>(ackHeader.type) << std::endl;
+                std::cerr << to_string(ackHeader)<< std::endl;
             }
             else {
                 std::cerr << "The header is not expected seq" << std::endl;
+                std::cerr << to_string(ackHeader)<< std::endl;
             }
             return false;
 
@@ -167,16 +173,18 @@ public:
             while (nextSeqNum < base + windowSize && nextSeqNum < dataChunks.size()) {
                 PacketHeader dataHeader;
                 dataHeader.type = DATA;
-                dataHeader.seqNum = htonl(nextSeqNum);
-                dataHeader.length = htonl(dataChunks[nextSeqNum].size());
+                dataHeader.seqNum = nextSeqNum;
+                dataHeader.length = dataChunks[nextSeqNum].size();
                 dataHeader.checksum = crc32(dataChunks[nextSeqNum].data(), dataChunks[nextSeqNum].size());
 
                 std::cout << "Sending dataChunk" << std::endl;
+                std::cout << to_string(dataHeader)<< std::endl;
                 sendPacket(&dataHeader, dataChunks[nextSeqNum].data());
                 log(dataHeader);
                 nextSeqNum++;
             }
 
+            // situations where data packets are failed to sent or ACK packets are not well received by wSender
             fd_set readfds;
             FD_ZERO(&readfds);
             FD_SET(sockfd, &readfds);
@@ -188,8 +196,8 @@ public:
                 for (unsigned int i = base; i < nextSeqNum; ++i) {
                     PacketHeader dataHeader;
                     dataHeader.type = DATA;
-                    dataHeader.seqNum = htonl(i);
-                    dataHeader.length = htonl(dataChunks[i].size());
+                    dataHeader.seqNum = i;
+                    dataHeader.length = dataChunks[i].size();
                     dataHeader.checksum = crc32(dataChunks[i].data(), dataChunks[i].size());
 
                     std::cout << "Sending dataChunk" << std::endl;
@@ -210,7 +218,7 @@ public:
                 ssize_t bytes = recvfrom(sockfd, &ackHeader, sizeof(ackHeader), 0,
                                          (struct sockaddr*)&receiverAddr, &addrLen);
                 if (bytes >= sizeof(ackHeader) && ackHeader.type== ACK) {
-                    unsigned int ackSeq = ntohl(ackHeader.seqNum);
+                    unsigned int ackSeq = ackHeader.seqNum;
                     if (ackSeq > base) {
                         base = ackSeq;
                         gettimeofday(&startTime, nullptr);
