@@ -7,16 +7,16 @@
 #include <unistd.h>
 #include <map>
 #include <sys/stat.h>
+#include <filesystem>
 #include "crc32.h"
+#include "PacketHeader.h"
 
-struct PacketHeader {
-    unsigned int type;
-    unsigned int seqNum;
-    unsigned int length;
-    unsigned int checksum;
-};
+#define ISDEBUG false
 
-enum PacketType { START = 0, END = 1, DATA = 2, ACK = 3 };
+using PacketType::START;
+using PacketType::END;
+using PacketType::DATA;
+using PacketType::ACK;
 
 class wReceiver {
 private:
@@ -24,14 +24,15 @@ private:
     unsigned int windowSize;
     std::string outputDir;
     std::ofstream logFile;
-    std::map<unsigned int, std::vector<char>> receivedPackets;
+    std::map<unsigned int, std::vector<char> > receivedPackets;
     unsigned int expectedSeq;
     int fileCounter;
     std::ofstream currentFile;
 
     void log(const PacketHeader& header) {
-        logFile << ntohl(header.type) << " " << ntohl(header.seqNum) << " " << ntohl(header.length) << " " << ntohl(header.checksum) << std::endl;
+        logFile << to_string(header) << std::endl;
     }
+
 
     void sendAck(unsigned int seqNum) {
         PacketHeader ackHeader;
@@ -40,8 +41,18 @@ private:
         ackHeader.length = 0;
         ackHeader.checksum = 0;
 
-        sendto(sockfd, &ackHeader, sizeof(ackHeader), 0, (struct sockaddr*)&clientAddr, sizeof(clientAddr));
+        sendPacket(&ackHeader, nullptr);
         log(ackHeader);
+    }
+
+    void sendPacket(const PacketHeader* header, const char* data) {
+        char buffer[sizeof(PacketHeader) + 1456];
+        memcpy(buffer, header, sizeof(PacketHeader));
+        if (data != nullptr) {
+            memcpy(buffer + sizeof(PacketHeader), data, ntohl(header->length));
+        }
+        sendto(sockfd, buffer, sizeof(PacketHeader) + ntohl(header->length), 0,
+               (struct sockaddr*)&clientAddr, sizeof(clientAddr));
     }
 
     struct sockaddr_in clientAddr;
@@ -74,6 +85,16 @@ public:
         }
 
         mkdir(outputDir.c_str(), 0777);
+        try {
+            // Create a directory
+            if (std::filesystem::create_directory(outputDir)) {
+                    std::cout << "Directory created successfully: " << outputDir << std::endl;
+            } else {
+                    std::cout << "Directory already exists: " << outputDir << std::endl;
+            }
+            } catch (const std::filesystem::filesystem_error& e) {
+                std::cerr << "Error creating directory: " << e.what() << std::endl;
+        }
     }
 
     void run() {
@@ -85,33 +106,49 @@ public:
         while (true) {
             ssize_t bytes = recvfrom(sockfd, buffer, sizeof(buffer), 0,
                                      (struct sockaddr*)&clientAddr, &clientAddrLen);
+
+            std::cout << std::endl;
+            std::cout << std::endl;
+            std::cout << "Receiving" << std::endl;
             if (bytes < sizeof(PacketHeader)) {
                 continue;
             }
 
             memcpy(&header, buffer, sizeof(PacketHeader));
-            header.type = ntohl(header.type);
+            header.type = header.type;
             header.seqNum = ntohl(header.seqNum);
             header.length = ntohl(header.length);
             header.checksum = ntohl(header.checksum);
 
             log(header);
 
+            std::cout << to_string(header)<< std::endl;
             if (header.type == START) {
+                std::cout << "START received" << std::endl;
                 if (currentFile.is_open()) {
+                    std::cerr << "The prev request, is not ending, expecting recevied END" << std::endl;
                     continue; // Ignore START during transfer
                 }
                 std::string filename = outputDir + "/FILE-" + std::to_string(fileCounter++) + ".out";
+                std::cout << filename <<"<- writing data to here" << std::endl;
                 currentFile.open(filename, std::ios::binary);
                 if (!currentFile) {
                     std::cerr << "Failed to open output file" << std::endl;
                     continue;
                 }
+
+                // re-init
                 expectedSeq = 0;
                 receivedPackets.clear();
+
+                std::cout << "Ack sent" << std::endl;
                 sendAck(header.seqNum);
-            } else if (header.type == DATA) {
+            }
+            // DATA
+            else if (header.type == DATA) {
+                std::cout << "DATA received" << std::endl;
                 if (!currentFile.is_open()) {
+                    std::cerr << "The current file is not open" << std::endl;
                     continue; // Ignore DATA without START
                 }
 
@@ -119,10 +156,13 @@ public:
                 if (header.length > 0) {
                     unsigned int computedChecksum = crc32(data, header.length);
                     if (computedChecksum != header.checksum) {
-                        continue; // Drop corrupted packet
+                        std::cerr << "The Checksum is diff" << std::endl;
+                        // TODO: remove the command
+//                        continue; // Drop corrupted packet
                     }
                 }
 
+                // Write to File
                 if (header.seqNum >= expectedSeq && header.seqNum < expectedSeq + windowSize) {
                     receivedPackets[header.seqNum] = std::vector<char>(data, data + header.length);
                 }
@@ -132,9 +172,10 @@ public:
                     receivedPackets.erase(expectedSeq);
                     expectedSeq++;
                 }
-
+                std::cout << "Sending ACK" << std::endl;
                 sendAck(expectedSeq);
             } else if (header.type == END) {
+                std::cout << "The header is END" << std::endl;
                 if (currentFile.is_open()) {
                     currentFile.close();
                     sendAck(header.seqNum);
