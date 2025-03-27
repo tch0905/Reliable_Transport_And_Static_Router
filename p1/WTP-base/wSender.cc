@@ -160,9 +160,13 @@ public:
     void run() {
         std::cerr << "Sending start" << std::endl;
         sendStart();
+        // for the test
         if (!waitForAck(startSeqNum)) {
-            std::cerr << "Failed to establish connection" << std::endl;
-            exit(1);
+            sendStart();
+            if (!waitForAck(startSeqNum)) {
+                std::cerr << "Failed to establish connection" << std::endl;
+                exit(1);
+            }
         }
 
         struct timeval startTime;
