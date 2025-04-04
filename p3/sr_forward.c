@@ -1,9 +1,9 @@
+#include "sr_forward.h"
 #include "./sr.h"
 #include "./sr_if.h"
 #include "./sr_protocol.h"
 #include "./sr_rt.h"
 #include "sr_arp.h"
-#include "sr_forward.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -146,33 +146,18 @@ const char *sr_handlepacket(struct sr_instance *sr, uint8_t *packet, int len,
   dest_ip.s_addr = ip_hdr->ip_dst;
 
   struct sr_rt *best_rt = NULL;
-  uint32_t best_mask_len = 0;
+  uint32_t best_mask = 0;
 
+  // Perform Longest Prefix Match (LPM)
   for (struct sr_rt *rt = sr->routing_table; rt != NULL; rt = rt->next) {
-    struct in_addr net;
-    net.s_addr = dest_ip.s_addr & rt->mask.s_addr;
+    // Match destination IP with prefix using the mask
+    if ((dest_ip.s_addr & rt->mask.s_addr) ==
+        (rt->dest.s_addr & rt->mask.s_addr)) {
+      uint32_t curr_mask = ntohl(rt->mask.s_addr);
 
-    if (net.s_addr == (rt->dest.s_addr & rt->mask.s_addr)) {
-      uint8_t *mask_bytes = (uint8_t *)&rt->mask.s_addr;
-      int mask_len = 0;
-      for (int i = 0; i < 4; i++) {
-        uint8_t byte = mask_bytes[i];
-        if (byte == 0xFF) {
-          mask_len += 8;
-        } else {
-          for (int j = 7; j >= 0; j--) {
-            if (byte & (1 << j)) {
-              mask_len++;
-            } else {
-              break;
-            }
-          }
-          break;
-        }
-      }
-
-      if (mask_len > best_mask_len) {
-        best_mask_len = mask_len;
+      // Update the best match if this route has a longer prefix
+      if (curr_mask >= best_mask) {
+        best_mask = curr_mask;
         best_rt = rt;
       }
     }
